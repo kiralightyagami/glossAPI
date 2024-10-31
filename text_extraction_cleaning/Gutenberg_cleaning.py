@@ -2,6 +2,7 @@ import pandas
 import sys
 import re
 import os
+import time
 
 simiosi_pattern = re.compile(r'Σημείωση|Note|Ο τονισμός|The translator|Στην παρούσα ηλεκτρονική μεταγραφή διατηρηθήκαν|Ο πίνακας περιεχομένων|Η έκδοση είχε ατέλειες|Τίτλος:')
 end_pattern = re.compile(r'(( )*ΤΕΛΟΣ.?)$|Α Υ Λ Α Ι Α|Τ Ε Λ Ο Σ|Η Σειρά των Αρχαίων Ελλήνων Συγγραφέων|Η Σειρά των Αρχαίων Ελλήνων Συγγραφεων|Ο Εκπαιδευτικός Όμιλος|ΠΑΡΟΡΑΜΑΤΑ|ΥΠΟΣΗΜΕΙΩΣΕΙΣ|ΕΚΛΕΚΤΑ ΕΡΓΑ|ΧΡΗΜΑΤΙΣΤΗΡΙΟΝ ΤΟΥ ΒΙΒΛΙΟΥ|ΔIΟΡΘΩΜΑΤΑ|ΤΥΠΟΓΡΑΦΕΙΟΝ "ΕΣΤΙΑ|Έργα του Ιδίου|(.?ΣΗΜΕΙΩΣΕΙΣ.?)$|ΠΡΟΠΟΜΠΟΙ|(\*\*)$|ΤΟΥ ΑΥΤΟΥ ΣΥΓΓΡΑΦΕΩΣ|( )*ΕΝ ΤΩ ΒΙΒΛΙΟΠΩΛΕΙΩ ΤΗΣ ΕΣΤΙΑΣ')
@@ -117,7 +118,7 @@ def remove_latin_text(text) :
             continue
         if i < 105 or i > len(lines) - 105:
             if re.search(no_greek_pattern,line) :
-                newtext = newtext + line + '\n'
+                newtext = newtext + line + '\n' 
             else :
                 newtext = newtext+'[Out:Non greek in the first or last 105 lines]'+line+'\n'
         else :
@@ -156,33 +157,53 @@ def re_remove(text,num_of_file) :
     return newtext
 
 def remove_extras(text) :
-    intro_white_space_flag = True
-    beginning_pattern = re.compile(r'[Α-Ω]')
-    lines = text.splitlines()
-    newtext = ''
-    for line in lines :
-        if re.match(beginning_pattern,line) :
-            intro_white_space_flag = False
-        if intro_white_space_flag :
-            newtext = newtext + '[Out:Greek Text not begun]'+ line + '\n'
-            continue
-        newtext = newtext + line + '\n'
-    return newtext
+    whitespace_pattern = re.compile(r'.*?[Α-ΩΆ-Ώ\[]',re.DOTALL)
+    temp = re.match(whitespace_pattern, text)
+    if temp :
+        temp = temp.group(0)
+        text = re.sub(whitespace_pattern, '[Out: Greek text not begun'+temp[:-2]+' End of Non-Greek text]'+temp[-2:],text,1)
+    return text
 
 def remove_publisher_note(text) :
-    ekdotis_pattern = re.compile(r'.+Ο ΕΚΔΟΤΗΣ',re.DOTALL)
+    ekdotis_pattern = re.compile(r'.+(Ο ΕΚΔΟΤΗΣ|Ο εκδότης( )*\n|Αφιερώ( )*\n)',re.DOTALL)
     if re.match(ekdotis_pattern, text) :
-        re.sub(ekdotis_pattern, '[Out'+re.match(ekdotis_pattern, text).group(0)+']',text)
+        text = re.sub(ekdotis_pattern, '[Out: Ends in Ekdotis'+re.match(ekdotis_pattern, text).group(0)+' End of ekdotis]',text)
+    return text
+
+def remove_special_char(text) :
+    special_char_pattern = re.compile(r'$|_')
+    text = re.sub(special_char_pattern,'',text)
+    return text
+
+def remove_sim_end(text) :
+    text = text[::-1]
+    sim_ending_pattern = re.compile(r'.+?(}1)',re.DOTALL)
+    if re.match(sim_ending_pattern,text) :
+        text = re.sub(sim_ending_pattern, '[Out: Ends in Ekdotis'+re.match(sim_ending_pattern, text).group(0)+' End of ekdotis]',text)
+    text = text[::-1]
+    return text
+    
+
+def remove_extras_end(text) :
+    text = text[::-1]
+    end_whitespace_pattern = re.compile(r'[ \n]+?.')
+    if re.match(end_whitespace_pattern,text) :
+        text = re.sub(end_whitespace_pattern, '[Out: Ends in Ekdotis'[::-1]+re.match(end_whitespace_pattern, text).group(0)+' End of ekdotis]'[::-1],text)
+    text = text[::-1]
     return text
 
 def precision_cleaning(text) :
-    text = remove_extras(text)
     text = remove_publisher_note(text)
+    text = remove_sim_end(text)
+    text = remove_extras(text)
+    #text = remove_extras_end(text)
+    text = remove_special_char(text)
     return text
 
 def clean(pathout,pathin) :
     os.makedirs(pathout, exist_ok=True)
     for i,file in enumerate(os.listdir(pathin)) :
+        start = time.time()
         if not file.endswith('.txt'):
             continue
         try:
@@ -201,7 +222,8 @@ def clean(pathout,pathin) :
         except Exception as e:
             print(f"Error writing to {output_file_path}: {e}")
             continue
-    
+        end = time.time()
+        print('Finished cleaning :',file," taking ",end-start," seconds")
 
 if __name__ == '__main__' :
     if len(sys.argv) < 3 :
